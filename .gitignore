@@ -1,0 +1,7 @@
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.log
+
+# local node deps (tests resolve jsdom from managed runtime, not committed)
+node_modules/

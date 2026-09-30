@@ -22,7 +22,7 @@
   };
 
   /* ---------- 极简 hash 路由：视图(view) ↔ location.hash 双向同步 ---------- */
-  var VIEWS = ['today', 'calendar', 'stats', 'manage'];
+  var VIEWS = ['today', 'calendar', 'stats', 'manage', 'me'];
   function viewFromHash() {
     var h = (location.hash || '').replace(/^#\/?/, '').trim();
     return VIEWS.indexOf(h) >= 0 ? h : null;

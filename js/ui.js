@@ -455,14 +455,76 @@ window.App = window.App || {};
     return html;
   }
 
+  /* ================= 我的（帮助 / 关于 / 数据 · 手机 App 卡片排版） ================= */
+  function viewMe(state) {
+    var feat = [
+      { v: 'today', icon: '✅', t: '今日打卡', d: '一眼看清今天待办，圆圈一点即完成' },
+      { v: 'calendar', icon: '📅', t: '日历补卡', d: '月/周回顾轨迹，错过也能补打卡' },
+      { v: 'stats', icon: '📊', t: '数据统计', d: '完成率、趋势、连续天数一目了然' },
+      { v: 'manage', icon: '📋', t: '清单管理', d: '分类、优先级、重复与提醒随心配' }
+    ];
+    var tips = [
+      '点底部「+」快速新增；圆圈=完成，↷=跳过，可随时撤销',
+      '日历里点任意日期即可补打卡或新增当日事项',
+      '长按「清单」顶部可切换排序（优先级/时间/创建）与筛选',
+      '开启提醒后，到点会在通知栏与 App 内轻轻提示你'
+    ];
+    var faqs = [
+      { q: '我的数据存在哪里？', a: '全部保存在本机浏览器（localStorage），不上传任何服务器，离线也能用。' },
+      { q: '如何备份 / 迁移数据？', a: '在「清单」页底部打开设置 → 导出 JSON；换设备后导入同一份 JSON 即可恢复。' },
+      { q: '错过打卡还能补吗？', a: '可以。日历点选任意日期，在当日面板直接补打卡或「+ 在 X 新增事项」。' },
+      { q: '支持深色模式吗？', a: '支持。设置里切换浅色 / 深色 / 跟随系统即可。' }
+    ];
+
+    var html = '';
+    // Hero：应用标识
+    html += '<section class="card me-hero">' +
+      '<div class="me-avatar">✓</div>' +
+      '<div class="me-id"><div class="me-name">HabitCheck</div>' +
+      '<div class="me-sub">极简清单打卡 · 让坚持看得见</div>' +
+      '<div class="me-ver">v1.0.1</div></div></section>';
+
+    // 功能亮点（点按直接跳转对应页）
+    html += '<div class="me-sec-title">功能亮点</div><div class="feat-grid">';
+    html += feat.map(function (f) {
+      return '<button class="feat" data-act="nav" data-view="' + f.v + '">' +
+        '<div class="feat-ic">' + f.icon + '</div>' +
+        '<div class="feat-t">' + f.t + '</div>' +
+        '<div class="feat-d">' + f.d + '</div></button>';
+    }).join('');
+    html += '</div>';
+
+    // 使用技巧
+    html += '<div class="me-sec-title">使用技巧</div><section class="card me-tips">';
+    html += tips.map(function (t) { return '<div class="tip">' + t + '</div>'; }).join('');
+    html += '</section>';
+
+    // 常见问题（手风琴折叠）
+    html += '<div class="me-sec-title">常见问题</div><section class="card faq-wrap">';
+    html += faqs.map(function (f, i) {
+      return '<div class="faq' + (i === 0 ? ' open' : '') + '">' +
+        '<div class="faq-q" data-act="faq"><span>' + f.q + '</span><span class="faq-ar">⌄</span></div>' +
+        '<div class="faq-a"><div class="faq-a-in">' + f.a + '</div></div></div>';
+    }).join('');
+    html += '</section>';
+
+    // 数据说明 + 设置入口
+    html += '<section class="card me-foot">' +
+      '<div class="kv" data-act="open-settings"><span class="k">设置 · 提醒 · 外观 · 数据</span><span class="muted">›</span></div>' +
+      '<div class="me-note">本地优先 · 隐私安全 · 无广告</div></section>';
+
+    return html;
+  }
+
   /* ================= 头部 ================= */
   function headerHtml(state) {
-    var titles = { today: '今天', calendar: '日历', stats: '统计', manage: '清单' };
+    var titles = { today: '今天', calendar: '日历', stats: '统计', manage: '清单', me: '我的' };
     var subs = {
       today: U.prettyDate(st.date),
       calendar: '按月 / 周回顾打卡轨迹',
       stats: '完成率 · 趋势 · 连续记录',
-      manage: '共 ' + state.items.filter(function (i) { return !i.archived; }).length + ' 项进行中'
+      manage: '共 ' + state.items.filter(function (i) { return !i.archived; }).length + ' 项进行中',
+      me: '使用指南 · 关于 · 数据'
     };
     return '<div class="appbar-row"><div><h1>' + titles[st.view] + '</h1>' +
       '<div class="sub">' + subs[st.view] + '</div></div>' +
@@ -478,11 +540,12 @@ window.App = window.App || {};
     var html = st.view === 'today' ? viewToday(state)
       : st.view === 'calendar' ? viewCalendar(state)
         : st.view === 'stats' ? viewStats(state)
-          : viewManage(state);
+          : st.view === 'me' ? viewMe(state)
+            : viewManage(state);
     $('#view').innerHTML = html;
     UI.updateTimer();
     var fab = $('#fab');
-    fab.style.display = st.view === 'stats' ? 'none' : 'flex';
+    fab.style.display = (st.view === 'stats' || st.view === 'me') ? 'none' : 'flex';
     var tabs = document.querySelectorAll('#tabbar button');
     for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('on', tabs[i].dataset.view === st.view);
   }
@@ -766,6 +829,15 @@ window.App = window.App || {};
         sheetEditor(null, el.dataset.date); break;
       case 'day-open':
         st.date = el.dataset.date; render(); break;
+      case 'faq': {   // 常见问题手风琴：单开模式（展开一条即收起其余），不触发整页重渲染
+        var fq = el.closest('.faq');
+        if (!fq) break;
+        var opening = !fq.classList.contains('open');
+        var sibs = fq.parentNode.querySelectorAll('.faq');
+        for (var k = 0; k < sibs.length; k++) sibs[k].classList.remove('open');
+        if (opening) fq.classList.add('open');
+        break;
+      }
       case 'toggle': { // 圆圈：未打卡 -> 完成 -> 撤销
         var cur = L.itemStatus(S.getState(), id, date);
         setStatus(id, date, cur === 'done' ? null : 'done');

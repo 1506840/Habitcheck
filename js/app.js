@@ -21,15 +21,32 @@
     endedText: '今日目标已达成'
   };
 
-  /* ---------- 极简 hash 路由：视图(view) ↔ location.hash 双向同步 ---------- */
-  var VIEWS = ['today', 'calendar', 'stats', 'manage', 'me'];
-  function viewFromHash() {
+  /* ---------- 极简 hash 路由：视图(view) ↔ location.hash 双向同步 ----------
+   * 支持「带日期参数」的深层链接：#/day/YYYY-MM-DD → 当天任务页 */
+  var VIEWS = ['today', 'calendar', 'stats', 'manage', 'me', 'day'];
+  /** 解析 hash：返回 { view, date }；date 仅 day 视图携带 */
+  function parseHash() {
     var h = (location.hash || '').replace(/^#\/?/, '').trim();
-    return VIEWS.indexOf(h) >= 0 ? h : null;
+    if (!h) return null;
+    var seg = h.split('/');
+    if (seg[0] === 'day') {
+      // 日期非法或缺失时回退到今天，避免进入空白页
+      var d = (seg[1] && U.isValidKey(seg[1])) ? seg[1] : U.todayKey();
+      return { view: 'day', date: d };
+    }
+    if (VIEWS.indexOf(seg[0]) >= 0) return { view: seg[0], date: null };
+    return null;
   }
   function syncViewFromHash() {
-    var v = viewFromHash();
-    if (v && v !== UI.state.view) { UI.state.view = v; UI.render(); }
+    var p = parseHash();
+    if (p) {
+      var changed = p.view !== UI.state.view || (p.date && p.date !== UI.state.date);
+      if (changed) {
+        UI.state.view = p.view;
+        if (p.date) UI.state.date = p.date;
+        UI.render();
+      }
+    }
   }
 
   /* ---------- 启动 ---------- */
@@ -37,7 +54,9 @@
   // 初始视图优先级：URL hash（深层链接）> 本地记忆 > 默认 today
   var savedView = null;
   try { savedView = localStorage.getItem('habitcheck.ui.view'); } catch (e) { }
-  UI.state.view = viewFromHash() || savedView || 'today';
+  var ph = parseHash();
+  UI.state.view = (ph ? ph.view : null) || savedView || 'today';
+  if (ph && ph.date) UI.state.date = ph.date;
 
   S.subscribe(function () { UI.render(); });
   UI.render();

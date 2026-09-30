@@ -236,7 +236,7 @@ window.App = window.App || {};
     var html = '<section class="card">' +
       '<div class="cal-head">' +
       '<div><div class="cal-title">' + title + '</div>' +
-      '<div class="small muted">点日期查看当天详情，可直接补打卡</div></div>' +
+      '<div class="small muted">点任意日期进入「当天任务页」</div></div>' +
       '<div class="cal-nav">' +
       '<button data-act="cal-prev">‹</button>' +
       '<button data-act="cal-today" style="width:auto;padding:0 8px;font-size:12px">今天</button>' +
@@ -472,7 +472,7 @@ window.App = window.App || {};
     var faqs = [
       { q: '我的数据存在哪里？', a: '全部保存在本机浏览器（localStorage），不上传任何服务器，离线也能用。' },
       { q: '如何备份 / 迁移数据？', a: '在「清单」页底部打开设置 → 导出 JSON；换设备后导入同一份 JSON 即可恢复。' },
-      { q: '错过打卡还能补吗？', a: '可以。日历点选任意日期，在当日面板直接补打卡或「+ 在 X 新增事项」。' },
+      { q: '错过打卡还能补吗？', a: '可以。日历点任意日期会进入「当天任务页」，按已完成 / 未完成分组显示，并可直接补打卡或「+ 在 X 新增事项」。' },
       { q: '支持深色模式吗？', a: '支持。设置里切换浅色 / 深色 / 跟随系统即可。' }
     ];
 
@@ -482,7 +482,7 @@ window.App = window.App || {};
       '<div class="me-avatar">✓</div>' +
       '<div class="me-id"><div class="me-name">HabitCheck</div>' +
       '<div class="me-sub">极简清单打卡 · 让坚持看得见</div>' +
-      '<div class="me-ver">v1.0.1</div></div></section>';
+      '<div class="me-ver">v1.0.2</div></div></section>';
 
     // 功能亮点（点按直接跳转对应页）
     html += '<div class="me-sec-title">功能亮点</div><div class="feat-grid">';
@@ -516,19 +516,77 @@ window.App = window.App || {};
     return html;
   }
 
+  /* ================= 视图：当天任务（点日历日期跳转，按完成态分组） ================= */
+  /**
+   * 当天任务页：展示所选日期的全部任务，按「已完成 / 未完成」明确分组。
+   * 数据来源：logic.dueItems(state, key) 取该日应做/逾期项；logic.itemStatus 判定单条完成态。
+   * 字段保证：每条任务都带 title（标题）+ status（完成状态 'done'/其它），与日期通过 checkins[itemId@date] 正确关联。
+   */
+  function viewDay(state) {
+    var key = st.date;
+    var d = L.dayStats(state, key);
+    var items = sortItems(L.dueItems(state, key), state, key);
+    // 按完成状态分类：done = 已完成；其余（待完成 / 已跳过）归入未完成
+    var done = [], todo = [];
+    items.forEach(function (it) {
+      (L.itemStatus(state, it.id, key) === 'done' ? done : todo).push(it);
+    });
+    var makeup = key !== U.todayKey();
+
+    var html = '';
+    // 顶部概览：已完成 / 未完成 / 完成率
+    html += '<section class="card day-summary">' +
+      '<div class="stat-row" style="margin:0">' +
+      '<div class="stat"><div class="v" style="color:var(--ok)">' + done.length + '</div><div class="k">已完成</div></div>' +
+      '<div class="stat"><div class="v">' + todo.length + '</div><div class="k">未完成</div></div>' +
+      '<div class="stat"><div class="v">' + Math.round(d.rate * 100) + '%</div><div class="k">完成率</div></div>' +
+      '</div></section>';
+
+    // 分组 1：已完成
+    html += dayGroup('已完成', done, state, key, true);
+    // 分组 2：未完成（含待完成与已跳过）
+    html += dayGroup('未完成', todo, state, key, false);
+
+    // 在所选日期新增事项
+    html += '<button class="btn ghost" style="width:100%;margin-top:6px" data-act="new-item-date" data-date="' + key + '">' +
+      '+ 在 ' + U.prettyDate(key) + ' 新增事项</button>';
+    return html;
+  }
+
+  /** 单一分组区块：标题带计数 + 列表（空状态友好提示） */
+  function dayGroup(label, list, state, key, isDone) {
+    var color = isDone ? 'var(--ok)' : 'var(--text-2)';
+    var html = '<section class="card day-group">' +
+      '<div class="card-title group-head" style="color:' + color + '">' +
+      '<span class="gh-dot" style="background:' + color + '"></span>' + label +
+      ' <span class="muted">' + list.length + '</span></div>';
+    if (!list.length) {
+      html += '<div class="empty" style="padding:14px">' +
+        (isDone ? '这一天还没有已完成的任务' : '这一天没有待办，享受轻松时光 🎉') + '</div>';
+    } else {
+      html += '<div class="list">' + list.map(function (i) { return dayItemRow(state, i, key); }).join('') + '</div>';
+    }
+    html += '</section>';
+    return html;
+  }
+
   /* ================= 头部 ================= */
   function headerHtml(state) {
-    var titles = { today: '今天', calendar: '日历', stats: '统计', manage: '清单', me: '我的' };
+    var titles = { today: '今天', calendar: '日历', stats: '统计', manage: '清单', me: '我的', day: U.prettyDate(st.date) };
     var subs = {
       today: U.prettyDate(st.date),
-      calendar: '按月 / 周回顾打卡轨迹',
+      calendar: '点日期进入当天任务页',
       stats: '完成率 · 趋势 · 连续记录',
       manage: '共 ' + state.items.filter(function (i) { return !i.archived; }).length + ' 项进行中',
-      me: '使用指南 · 关于 · 数据'
+      me: '使用指南 · 关于 · 数据',
+      day: U.relLabel(st.date)
     };
-    return '<div class="appbar-row"><div><h1>' + titles[st.view] + '</h1>' +
-      '<div class="sub">' + subs[st.view] + '</div></div>' +
-      '<span class="streak-chip">🔥 连续 ' + L.globalStreak(state) + ' 天</span></div>';
+    var back = st.view === 'day'
+      ? '<button class="icon-btn nav-back" data-act="back-cal" aria-label="返回日历">‹</button>'
+      : '';
+    var streak = st.view === 'day' ? '' : '<span class="streak-chip">🔥 连续 ' + L.globalStreak(state) + ' 天</span>';
+    return '<div class="appbar-row">' + back + '<div><h1>' + titles[st.view] + '</h1>' +
+      '<div class="sub">' + subs[st.view] + '</div></div>' + streak + '</div>';
   }
 
   /* ================= 渲染入口 ================= */
@@ -541,11 +599,18 @@ window.App = window.App || {};
       : st.view === 'calendar' ? viewCalendar(state)
         : st.view === 'stats' ? viewStats(state)
           : st.view === 'me' ? viewMe(state)
-            : viewManage(state);
+            : st.view === 'day' ? viewDay(state)
+              : viewManage(state);
     $('#view').innerHTML = html;
     UI.updateTimer();
     var fab = $('#fab');
-    fab.style.display = (st.view === 'stats' || st.view === 'me') ? 'none' : 'flex';
+    if (st.view === 'stats' || st.view === 'me') {
+      fab.style.display = 'none';
+    } else {
+      fab.style.display = 'flex';
+      if (st.view === 'day') { fab.dataset.act = 'new-item-date'; fab.dataset.date = st.date; }
+      else { fab.dataset.act = 'new-item'; delete fab.dataset.date; }
+    }
     var tabs = document.querySelectorAll('#tabbar button');
     for (var i = 0; i < tabs.length; i++) tabs[i].classList.toggle('on', tabs[i].dataset.view === st.view);
   }
@@ -809,6 +874,10 @@ window.App = window.App || {};
         // 改 hash 即可：hashchange 由 app.js 监听并同步视图（支持前进/后退、深层链接）
         location.hash = '#/' + el.dataset.view;
         break;
+      case 'back-cal':
+        // 当天任务页 → 返回日历（保留已选日期）
+        location.hash = '#/calendar';
+        break;
       case 'filter':
         st.filter = el.dataset.v; render(); break;
       case 'cal-mode':
@@ -828,7 +897,9 @@ window.App = window.App || {};
       case 'new-item-date':
         sheetEditor(null, el.dataset.date); break;
       case 'day-open':
-        st.date = el.dataset.date; render(); break;
+        // 点任意日期 → 跳转到【当天任务页】（支持浏览器前进/后退与深层链接）
+        location.hash = '#/day/' + el.dataset.date;
+        break;
       case 'faq': {   // 常见问题手风琴：单开模式（展开一条即收起其余），不触发整页重渲染
         var fq = el.closest('.faq');
         if (!fq) break;

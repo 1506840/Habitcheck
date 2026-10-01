@@ -1,0 +1,106 @@
+# =============================================================
+# HabitCheck · 用 GitHub Actions 免 Gradle 手工打 WebView 壳 APK
+# 触发：push 到 main（产出 artifact）或打 v* 标签（自动发 Release）
+# 构建在 GitHub 服务器完成，无需本机 Android SDK / JDK。
+# =============================================================
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # 发 Release 需要写权限
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (Zulu)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install build-tools & platform
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "build-tools;36.0.0" "platforms;android-37"
+
+      - name: Build WebView-shell APK
+        run: |
+          set -e
+          BT="$ANDROID_HOME/build-tools/36.0.0"
+          AJAR="$ANDROID_HOME/platforms/android-37/android.jar"
+          cd android
+
+          # 1) 把网页 App 同步进 assets（index.html + css + js）
+          rm -rf assets && mkdir -p assets
+          cp -r ../index.html assets/
+          cp -r ../css assets/
+          cp -r ../js assets/
+
+          # 2) aapt2 两段式：compile -> zip，link -> 未签名 APK
+          "$BT/aapt2" compile --dir res -o compiled.zip
+          "$BT/aapt2" link -o app-unsigned.apk -I "$AJAR" \
+            -R compiled.zip --manifest AndroidManifest.xml -A assets \
+            --min-sdk-version 24 --target-sdk-version 37 --auto-add-overlay
+
+          # 3) javac 编译 WebView 壳 Activity
+          rm -rf obj && mkdir -p obj
+          "$JAVA_HOME/bin/javac" -classpath "$AJAR" -d obj \
+            src/com/habitcheck/app/MainActivity.java
+
+          # 4) d8 编 DEX（用 -cp 指定主类，避免 d8.jar 无 Main-Class）
+          "$JAVA_HOME/bin/java" -cp "$BT/lib/d8.jar" com.android.tools.r8.D8 \
+            --lib "$AJAR" --output classes.zip \
+            obj/com/habitcheck/app/MainActivity.class
+
+          # 5) 解出 classes.dex 注入未签名 APK
+          rm -f classes.dex && unzip -o classes.zip >/dev/null
+          "$JAVA_HOME/bin/jar" uf app-unsigned.apk classes.dex
+
+          # 6) zipalign 对齐
+          rm -f app-aligned.apk
+          "$BT/zipalign" -f 4 app-unsigned.apk app-aligned.apk
+
+          # 7) 生成调试签名 keystore（固定密码，仅用于本地/侧载安装）
+          "$JAVA_HOME/bin/keytool" -genkeypair -v \
+            -keystore habitcheck.keystore -alias habitcheck \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass habitcheck123 -keypass habitcheck123 \
+            -dname "CN=HabitCheck, O=HabitCheck, C=CN"
+
+          # 8) apksigner 签名（v1/v2/v3）
+          rm -f HabitCheck-1.0.3.apk
+          "$JAVA_HOME/bin/java" -jar "$BT/lib/apksigner.jar" sign \
+            --ks habitcheck.keystore --ks-key-alias habitcheck \
+            --ks-pass pass:habitcheck123 --key-pass pass:habitcheck123 \
+            --out HabitCheck-1.0.3.apk app-aligned.apk
+
+          # 校验
+          "$JAVA_HOME/bin/java" -jar "$BT/lib/apksigner.jar" verify HabitCheck-1.0.3.apk
+          echo "== built =="
+          ls -la HabitCheck-1.0.3.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HabitCheck-1.0.3.apk
+          path: android/HabitCheck-1.0.3.apk
+
+      - name: Publish to Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/HabitCheck-1.0.3.apk
+          name: HabitCheck ${{ github.ref_name }}
+          generate_release_notes: true
